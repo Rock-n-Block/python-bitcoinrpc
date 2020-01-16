@@ -1,6 +1,9 @@
-
 """
   Copyright 2011 Jeff Garzik
+
+  Forked by Norman Schenck from python-bitcoinrpc in 12/2020.
+  This fork introduces the 'requests' module.
+
 
   AuthServiceProxy has the following improvements over python-jsonrpc's
   ServiceProxy class:
@@ -34,42 +37,39 @@
   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 """
 
-try:
-    import http.client as httplib
-except ImportError:
-    import httplib
-import base64
 import decimal
 import json
 import logging
-try:
-    import urllib.parse as urlparse
-except ImportError:
-    import urlparse
+import urllib.parse as urlparse
+
+from requests import auth, Session, codes
+from requests.adapters import HTTPAdapter
+from requests.exceptions import ConnectionError, Timeout, RequestException
+
 
 USER_AGENT = "AuthServiceProxy/0.1"
 
 HTTP_TIMEOUT = 30
+MAX_RETRIES = 3
 
 log = logging.getLogger("BitcoinRPC")
+
 
 class JSONRPCException(Exception):
     def __init__(self, rpc_error):
         parent_args = []
-        try:
-            parent_args.append(rpc_error['message'])
-        except:
-            pass
+        if "message" in rpc_error:
+            parent_args.append(rpc_error["message"])
         Exception.__init__(self, *parent_args)
         self.error = rpc_error
-        self.code = rpc_error['code'] if 'code' in rpc_error else None
-        self.message = rpc_error['message'] if 'message' in rpc_error else None
+        self.code = rpc_error["code"] if "code" in rpc_error else None
+        self.message = rpc_error["message"] if "message" in rpc_error else None
 
     def __str__(self):
-        return '%d: %s' % (self.code, self.message)
+        return f"{self.code}: {self.message}"
 
     def __repr__(self):
-        return '<%s \'%s\'>' % (self.__class__.__name__, self)
+        return f"<{self.__class__.__name__} '{self}'>"
 
 
 def EncodeDecimal(o):
@@ -77,112 +77,167 @@ def EncodeDecimal(o):
         return float(round(o, 8))
     raise TypeError(repr(o) + " is not JSON serializable")
 
+
 class AuthServiceProxy(object):
+    retry_adapter = HTTPAdapter(max_retries=MAX_RETRIES)
+
     __id_count = 0
 
-    def __init__(self, service_url, service_name=None, timeout=HTTP_TIMEOUT, 
-                 connection=None, ssl_context=None):
+    def __init__(
+        self,
+        service_url,
+        username=None,
+        password=None,
+        service_name=None,
+        timeout=HTTP_TIMEOUT,
+        connection=None,
+    ):
         self.__service_url = service_url
         self.__service_name = service_name
+        self.__timeout = timeout
         self.__url = urlparse.urlparse(service_url)
-        if self.__url.port is None:
-            port = 80
-        else:
-            port = self.__url.port
-        (user, passwd) = (self.__url.username, self.__url.password)
-        try:
-            user = user.encode('utf8')
-        except AttributeError:
-            pass
-        try:
-            passwd = passwd.encode('utf8')
-        except AttributeError:
-            pass
-        authpair = user + b':' + passwd
-        self.__auth_header = b'Basic ' + base64.b64encode(authpair)
+
+        port = self.__url.port if self.__url.port else 80
+        self.__rpc_url = (
+            self.__url.scheme
+            + "://"
+            + self.__url.hostname
+            + ":"
+            + str(port)
+            + self.__url.path
+        )
 
         if connection:
             # Callables re-use the connection of the original proxy
             self.__conn = connection
-        elif self.__url.scheme == 'https':
-            self.__conn = httplib.HTTPSConnection(self.__url.hostname, port,
-                                                  timeout=timeout, context=ssl_context)
         else:
-            self.__conn = httplib.HTTPConnection(self.__url.hostname, port,
-                                                 timeout=timeout)
+            headers = {
+                "Content-Type": "application/json",
+                "User-Agent": USER_AGENT,
+                "Host": self.__url.hostname,
+            }
+
+            user = username if username else self.__url.username
+            passwd = password if password else self.__url.password
+            # Basic Authentication
+            authentication = None
+            if user is not None and passwd is not None:
+                authentication = auth.HTTPBasicAuth(user, passwd)
+
+            self.__conn = Session()
+            self.__conn.mount(
+                f"{self.__url.scheme}://{self.__url.hostname}", self.retry_adapter
+            )
+            self.__conn.auth = authentication
+            self.__conn.headers = headers
 
     def __getattr__(self, name):
-        if name.startswith('__') and name.endswith('__'):
+        if name.startswith("__") and name.endswith("__"):
             # Python internal stuff
             raise AttributeError
         if self.__service_name is not None:
-            name = "%s.%s" % (self.__service_name, name)
-        return AuthServiceProxy(self.__service_url, name, connection=self.__conn)
+            name = f"{self.__service_name}.{name}"
+        return AuthServiceProxy(
+            service_url=self.__service_url, service_name=name, connection=self.__conn
+        )
 
     def __call__(self, *args):
         AuthServiceProxy.__id_count += 1
 
-        log.debug("-%s-> %s %s"%(AuthServiceProxy.__id_count, self.__service_name,
-                                 json.dumps(args, default=EncodeDecimal)))
-        postdata = json.dumps({'version': '1.1',
-                               'method': self.__service_name,
-                               'params': args,
-                               'id': AuthServiceProxy.__id_count}, default=EncodeDecimal)
-        self.__conn.request('POST', self.__url.path, postdata,
-                            {'Host': self.__url.hostname,
-                             'User-Agent': USER_AGENT,
-                             'Authorization': self.__auth_header,
-                             'Content-type': 'application/json'})
+        log.debug(
+            f"-{AuthServiceProxy.__id_count}-> {self.__service_name} {json.dumps(args, default=EncodeDecimal)}"
+        )
+        # args is tuple
+        # monero RPC always gets one dictionary as parameter
+        if args:
+            args = args[0]
 
-        response = self._get_response()
-        if response['error'] is not None:
-            raise JSONRPCException(response['error'])
-        elif 'result' not in response:
-            raise JSONRPCException({
-                'code': -343, 'message': 'missing JSON-RPC result'})
-        else:
-            return response['result']
+        postdata = json.dumps(
+            {
+                "version": "1.1",
+                "method": self.__service_name,
+                "params": args,
+                "id": AuthServiceProxy.__id_count,
+            },
+            default=EncodeDecimal,
+        )
+        return self._request(postdata)
 
     def batch_(self, rpc_calls):
         """Batch RPC call.
-           Pass array of arrays: [ [ "method", params... ], ... ]
-           Returns array of results.
-        """
-        batch_data = []
-        for rpc_call in rpc_calls:
-            AuthServiceProxy.__id_count += 1
-            m = rpc_call.pop(0)
-            batch_data.append({"jsonrpc":"2.0", "method":m, "params":rpc_call, "id":AuthServiceProxy.__id_count})
+        Pass array of arrays: [ [ "method", params... ], ... ]
+        Returns array of results.
 
-        postdata = json.dumps(batch_data, default=EncodeDecimal)
-        log.debug("--> "+postdata)
-        self.__conn.request('POST', self.__url.path, postdata,
-                            {'Host': self.__url.hostname,
-                             'User-Agent': USER_AGENT,
-                             'Authorization': self.__auth_header,
-                             'Content-type': 'application/json'})
+        No real implementation of JSON RPC batch.
+        Only requesting every method one after another.
+        """
         results = []
-        responses = self._get_response()
-        for response in responses:
-            if response['error'] is not None:
-                raise JSONRPCException(response['error'])
-            elif 'result' not in response:
-                raise JSONRPCException({
-                    'code': -343, 'message': 'missing JSON-RPC result'})
-            else:
-                results.append(response['result'])
+        for rpc_call in rpc_calls:
+            method = rpc_call.pop(0)
+            params = rpc_call.pop(0) if rpc_call else {}
+            try:
+                results.append(self.__getattr__(method)(params))
+            except (JSONRPCException) as e:
+                log.error(f"Error: '{str(e)}'.")
+                results.append(None)
+
         return results
 
-    def _get_response(self):
-        http_response = self.__conn.getresponse()
-        if http_response is None:
-            raise JSONRPCException({
-                'code': -342, 'message': 'missing HTTP response from server'})
+    def _request(self, postdata):
+        log.debug(f"--> {postdata}")
+        request_err_msg = None
+        try:
+            r = self.__conn.post(
+                url=self.__rpc_url, data=postdata, timeout=self.__timeout
+            )
+        except (ConnectionError) as e:
+            request_err_msg = (
+                f"Could not establish a connection, original error: '{str(e)}'."
+            )
+        except (Timeout) as e:
+            request_err_msg = f"Connection timeout, original error: '{str(e)}'."
+        except (RequestException) as e:
+            request_err_msg = f"Request error: '{str(e)}'."
 
-        responsedata = http_response.read().decode('utf8')
-        response = json.loads(responsedata, parse_float=decimal.Decimal)
-        if "error" in response and response["error"] is None:
-            log.debug("<-%s- %s"%(response["id"], json.dumps(response["result"], default=EncodeDecimal)))
+        if request_err_msg:
+            raise JSONRPCException({"code": -341, "message": request_err_msg})
+
+        response = self._get_response(r)
+        if response.get("error", None) is not None:
+            raise JSONRPCException(response["error"])
+        elif "result" not in response:
+            raise JSONRPCException(
+                {"code": -343, "message": "Missing JSON-RPC result."}
+            )
         else:
-            log.debug("<-- "+responsedata)
+            return response["result"]
+
+    def _get_response(self, r):
+        if r.status_code != codes.ok:
+            raise JSONRPCException(
+                {
+                    "code": -344,
+                    "message": f"Received HTTP status code '{r.status_code}'.",
+                }
+            )
+        http_response = r.text
+        if http_response is None:
+            raise JSONRPCException(
+                {"code": -342, "message": "Missing HTTP response from server."}
+            )
+
+        try:
+            response = json.loads(http_response, parse_float=decimal.Decimal)
+        except (json.JSONDecodeError) as e:
+            raise ValueError(f"Error: '{str(e)}'. Response: '{http_response}'.")
+
+        if "error" in response:
+            if response.get("error", None) is None:
+                log.debug(
+                    f"<-{response['id']}- {json.dumps(response['result'], default=EncodeDecimal)}"
+                )
+            else:
+                log.error(f"Error: '{response}'")
+        else:
+            log.debug(f"<-- {response}")
         return response

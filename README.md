@@ -1,3 +1,14 @@
+[![GitHub Release](https://img.shields.io/github/v/release/normoes/python-bitcoinrpc.svg)](https://github.com/normoes/python-bitcoinrpc/releases)
+[![GitHub Tags](https://img.shields.io/github/v/tag/normoes/python-bitcoinrpc.svg)](https://github.com/normoes/python-bitcoinrpc/tags)
+
+This project further improves [`python-bitcoinrpc`](https://github.com/jgarzik/python-bitcoinrpc) by making use of the `requests` module.
+
+`requests` replaces plain `http.client` and `httplib`, respectively.
+
+It's basically a mixture of the projects [`python-bitcoinrpc`](https://github.com/jgarzik/python-bitcoinrpc) and [`python-monerorpc`](https://github.com/monero-ecosystem/python-monerorpc).
+
+---
+
 AuthServiceProxy is an improved version of python-jsonrpc.
 
 It includes the following generic improvements:
@@ -20,7 +31,7 @@ Installation:
 - change the first line of setup.py to point to the directory of your installation of python 2.*
 - run setup.py
 
-Note: This will only install bitcoinrpc. If you also want to install jsonrpc to preserve 
+Note: This will only install bitcoinrpc. If you also want to install jsonrpc to preserve
 backwards compatibility, you have to replace 'bitcoinrpc' with 'jsonrpc' in setup.py and run it again.
 
 Example usage:

@@ -1,15 +1,27 @@
 #!/usr/bin/env python
 
-from distutils.core import setup
+from setuptools import setup
 
-setup(name='python-bitcoinrpc',
-      version='0.1',
-      description='Enhanced version of python-jsonrpc for use with Bitcoin',
-      long_description=open('README').read(),
-      author='Jeff Garzik',
-      author_email='<jgarzik@exmulti.com>',
-      maintainer='Jeff Garzik',
-      maintainer_email='<jgarzik@exmulti.com>',
-      url='http://www.github.com/jgarzik/python-bitcoinrpc',
-      packages=['bitcoinrpc'],
-      classifiers=['License :: OSI Approved :: GNU Library or Lesser General Public License (LGPL)', 'Operating System :: OS Independent'])
+__version__ = "v0.1.0"
+
+setup(
+    name="python-requests-bitcoinrpc",
+    version=__version__,
+    description="Enhanced version python-bitconrpc using requests sessions.",
+    long_description=open("README.md").read(),
+    long_description_content_type="text/markdown",
+    author="Norman Moeschter-Schenck",
+    author_email="<norman.moeschter@gmail.com>",
+    maintainer="Norman Moeschter-Schenck",
+    maintainer_email="<norman.moeschter@gmail.com>",
+    url="https://www.github.com/normoes/python-bitcoinrpc",
+    download_url=f"https://github.com/normoes/python-bitcoinrpc/archive/{__version__}.tar.gz",
+    packages=["bitcoinrpc"],
+    install_requires=["requests>=2.23.0"],
+    classifiers=[
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+    ],
+)
