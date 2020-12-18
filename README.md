@@ -7,6 +7,8 @@ This project further improves [`python-bitcoinrpc`](https://github.com/jgarzik/p
 
 It's basically a mixture of the projects [`python-bitcoinrpc`](https://github.com/jgarzik/python-bitcoinrpc) and [`python-monerorpc`](https://github.com/monero-ecosystem/python-monerorpc).
 
+The first version to contain the above change is tag `v0.4.0`.
+
 ---
 
 AuthServiceProxy is an improved version of python-jsonrpc.

@@ -2,7 +2,7 @@
 
 from setuptools import setup
 
-__version__ = "v0.1.0"
+__version__ = "v0.4.0"
 
 setup(
     name="python-requests-bitcoinrpc",
