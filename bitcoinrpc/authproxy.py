@@ -97,15 +97,16 @@ class AuthServiceProxy(object):
         self.__timeout = timeout
         self.__url = urlparse.urlparse(service_url)
 
-        port = self.__url.port if self.__url.port else 80
+        port = self.__url.port if self.__url.port else None
         self.__rpc_url = (
             self.__url.scheme
             + "://"
             + self.__url.hostname
-            + ":"
-            + str(port)
-            + self.__url.path
         )
+        if port:
+            self.__rpc_url += ":" + str(port)
+        self.__rpc_url += self.__url.path
+
 
         if connection:
             # Callables re-use the connection of the original proxy
