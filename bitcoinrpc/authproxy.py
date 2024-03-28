@@ -218,7 +218,7 @@ class AuthServiceProxy(object):
             raise JSONRPCException(
                 {
                     "code": -344,
-                    "message": f"Received HTTP status code '{r.status_code}'.",
+                    "message": f"Received HTTP status code '{r.status_code}'. Response body is: {r.text}",
                 }
             )
         http_response = r.text
